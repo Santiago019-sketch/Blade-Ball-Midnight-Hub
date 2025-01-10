@@ -1,5 +1,5 @@
--- Midnight Hub Ultimate Edition
-local version = '2.3 ULTIMATE'
+-- Midnight Hub Enhanced Edition
+local version = '3.0'
 
 -- Core Services
 local Players = game:GetService("Players")
@@ -7,9 +7,6 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local TweenService = game:GetService("TweenService")
-local Lighting = game:GetService("Lighting")
-local Stats = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
 -- Variables
@@ -19,39 +16,21 @@ local Balls = workspace:WaitForChild("Balls", 9e9)
 
 -- Configuration
 getgenv().Settings = {
-    -- Combat
     AutoParry = {
-        Enabled = false,
-        Distance = 12,
-        Timing = 10, -- Time threshold for parrying (in distance/velocity units)
-        UseMouseClick = true, -- New setting to toggle between mouse click and remote
-        ShowRange = false,
+        Enabled = true,
         PingBased = true,
-        PingBasedOffset = 0
-    },
-    AutoBlock = {
-        Enabled = false,
-        HoldTime = 0.2
-    },
-    BallPrediction = {
-        Enabled = false,
-        ShowBeam = false,
-        PredictedPosition = true
+        PingBasedOffset = 0,
+        DistanceToParry = 0.5,
+        BallSpeedCheck = true,
+        UseMouseClick = false, -- False uses remote, true uses mouse click
+        ShowRange = false
     },
     
-    -- Visual
+    -- Visual Settings
     Visuals = {
-        CustomHitEffect = false,
-        EffectID = "8632670510",
-        CustomTrail = false,
-        TrailID = "17483658369",
-        KillEffect = false,
         BallESP = false,
-        PlayerESP = false,
-        Shaders = false
-    },
-    
-    -- Performance & Misc settings remain the same as before
+        PlayerESP = false
+    }
 }
 
 -- Utility Functions
@@ -67,94 +46,80 @@ local Utilities = {
         return (local_player.Character and local_player.Character:FindFirstChild("Highlight"))
     end,
     
+    FindBall = function()
+        for _, ball in ipairs(Balls:GetChildren()) do
+            if ball:GetAttribute("realBall") == true then
+                return ball
+            end
+        end
+        return nil
+    end,
+    
     Parry = function()
         if getgenv().Settings.AutoParry.UseMouseClick then
-            -- Simulate mouse click
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         else
-            -- Use remote
             ReplicatedStorage:WaitForChild("Remotes").ParryButtonPress:Fire()
         end
+    end,
+    
+    CalculateVelocity = function(ball)
+        if not ball then return 0 end
+        return ball.AssemblyLinearVelocity.Magnitude
     end
 }
 
 -- Enhanced Auto Parry System
-local function InitializeEnhancedAutoParry()
-    Balls.ChildAdded:Connect(function(Ball)
-        if not Utilities.VerifyBall(Ball) then
-            return
+local function InitializeAutoParry()
+    RunService.PreRender:Connect(function()
+        if not getgenv().Settings.AutoParry.Enabled then return end
+        
+        local ball = Utilities.FindBall()
+        if not ball then return end
+        
+        local ballVelocity = Utilities.CalculateVelocity(ball)
+        if getgenv().Settings.AutoParry.BallSpeedCheck and ballVelocity == 0 then return end
+        
+        local distance = local_player:DistanceFromCharacter(ball.Position)
+        
+        -- Ping-based calculation
+        if getgenv().Settings.AutoParry.PingBased then
+            local ping = game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+            local pingOffset = ballVelocity * ping
+            distance = distance - pingOffset - getgenv().Settings.AutoParry.PingBasedOffset
         end
         
-        local OldPosition = Ball.Position
-        local OldTick = tick()
-        
-        Ball:GetPropertyChangedSignal("Position"):Connect(function()
-            if not getgenv().Settings.AutoParry.Enabled then return end
-            
-            if Utilities.IsTarget() then
-                local Distance = (Ball.Position - workspace.CurrentCamera.Focus.Position).Magnitude
-                local Velocity = (OldPosition - Ball.Position).Magnitude
-                
-                if getgenv().Settings.AutoParry.PingBased then
-                    local Ping = game.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
-                    Distance = Distance - (Velocity * Ping) - getgenv().Settings.AutoParry.PingBasedOffset
-                end
-                
-                if (Distance / Velocity) <= getgenv().Settings.AutoParry.Timing then
-                    Utilities.Parry()
-                end
-            end
-            
-            -- Update position tracking (frame rate limited)
-            if (tick() - OldTick >= 1/60) then
-                OldTick = tick()
-                OldPosition = Ball.Position
-            end
-        end)
+        -- Parry timing calculation
+        if Utilities.IsTarget() and (distance / ballVelocity) <= getgenv().Settings.AutoParry.DistanceToParry then
+            Utilities.Parry()
+        end
     end)
 end
 
--- Create UI Window and Tabs (keeping the same structure as before)
+-- UI Library
 local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
 local Window = OrionLib:MakeWindow({
-    Name = "🌙 Midnight Hub "..version,
+    Name = "🌙 Midnight Hub " .. version,
     HidePremium = false,
     SaveConfig = true,
-    ConfigFolder = "MidnightConfig",
-    IntroEnabled = true,
-    IntroText = "Midnight Hub Ultimate",
-    IntroIcon = "rbxassetid://11348590078"
+    ConfigFolder = "MidnightConfig"
 })
 
--- Create Tabs
+-- Create Combat Tab
 local CombatTab = Window:MakeTab({Name = "Combat", Icon = "rbxassetid://4483345998"})
 local VisualsTab = Window:MakeTab({Name = "Visuals", Icon = "rbxassetid://4483345998"})
-local MiscTab = Window:MakeTab({Name = "Misc", Icon = "rbxassetid://4483345998"})
-local SettingsTab = Window:MakeTab({Name = "Settings", Icon = "rbxassetid://4483345998"})
 
--- Enhanced Combat Section
-local AutoParrySection = CombatTab:AddSection({
-    Name = "Auto Parry"
-})
+-- Combat Settings
+local AutoParrySection = CombatTab:AddSection({Name = "Auto Parry"})
 
 AutoParrySection:AddToggle({
     Name = "Enable Auto Parry",
-    Default = false,
+    Default = true,
     Flag = "AutoParryEnabled",
     Save = true,
     Callback = function(Value)
         getgenv().Settings.AutoParry.Enabled = Value
-    end    
-})
-
-AutoParrySection:AddToggle({
-    Name = "Use Mouse Click",
-    Default = true,
-    Flag = "UseMouseClick",
-    Save = true,
-    Callback = function(Value)
-        getgenv().Settings.AutoParry.UseMouseClick = Value
     end    
 })
 
@@ -169,16 +134,16 @@ AutoParrySection:AddToggle({
 })
 
 AutoParrySection:AddSlider({
-    Name = "Parry Timing",
-    Min = 5,
-    Max = 15,
-    Default = 10,
+    Name = "Parry Distance",
+    Min = 0.1,
+    Max = 1.0,
+    Default = 0.5,
     Color = Color3.fromRGB(255,255,255),
-    Increment = 0.5,
+    Increment = 0.05,
     ValueName = "threshold",
     Save = true,
     Callback = function(Value)
-        getgenv().Settings.AutoParry.Timing = Value
+        getgenv().Settings.AutoParry.DistanceToParry = Value
     end    
 })
 
@@ -195,36 +160,37 @@ AutoParrySection:AddSlider({
     end
 })
 
--- Initialize Core Systems
-local function Initialize()
-    InitializeEnhancedAutoParry()
-    
-    -- ESP Initialization
-    local ESP = loadstring(game:HttpGet("https://kiriot22.com/releases/ESP.lua"))()
-    ESP:Toggle(true)
-    ESP.TeamColor = false
-    ESP.Names = true
-    ESP.Boxes = true
-    ESP.Tracers = false
-    
-    -- Anti-Detection
-    local function secure_load()
-        local g = game:GetService("CoreGui")
-        if g:FindFirstChild("Midnight_Host") then
-            g:FindFirstChild("Midnight_Host"):Destroy()
-        end
-    end
-    secure_load()
-end
+-- Visual Settings
+local VisualsSection = VisualsTab:AddSection({Name = "ESP Settings"})
 
--- Start Everything
-Initialize()
+VisualsSection:AddToggle({
+    Name = "Ball ESP",
+    Default = false,
+    Flag = "BallESP",
+    Save = true,
+    Callback = function(Value)
+        getgenv().Settings.Visuals.BallESP = Value
+    end    
+})
+
+VisualsSection:AddToggle({
+    Name = "Player ESP",
+    Default = false,
+    Flag = "PlayerESP",
+    Save = true,
+    Callback = function(Value)
+        getgenv().Settings.Visuals.PlayerESP = Value
+    end    
+})
+
+-- Initialize Everything
+InitializeAutoParry()
 OrionLib:Init()
 
--- Notification
+-- Success Notification
 OrionLib:MakeNotification({
-    Name = "Midnight Hub Ultimate",
-    Content = "Successfully loaded with enhanced auto-parry! Press RightShift to toggle UI",
+    Name = "Midnight Hub Enhanced",
+    Content = "Successfully loaded! Press RightShift to toggle UI",
     Image = "rbxassetid://4483345998",
     Time = 5
 })
