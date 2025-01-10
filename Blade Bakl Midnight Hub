@@ -1,0 +1,128 @@
+local version = '1.0'
+print('Midnight Hub - Welcome!')
+print('Version: ' .. version)
+
+-- Services
+local Stats = game:GetService('Stats')
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local UserInputService = game:GetService('UserInputService')
+local TweenService = game:GetService('TweenService')
+
+-- Variables
+local local_player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local Balls = workspace:WaitForChild("Balls", 9e9)
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+
+-- Configuration
+getgenv().AutoParryEnabled = false
+getgenv().HitSoundEnabled = false
+getgenv().VisualsEnabled = false
+getgenv().SpeedBoostEnabled = false
+
+-- Initialize UI Library
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Tevfnn/Visual_Tevfn/main/Visual_Helper"))()
+task.wait(0.5)
+
+library:init("Midnight Hub " .. version, UserInputService.TouchEnabled, game:GetService("CoreGui"))
+
+-- Create Sections
+library:create_section("Combat", 17440545793)
+library:create_section("Visuals", 17560376274)
+library:create_section("Performance", 17440865331)
+library:create_section("Settings", 17440866925)
+
+-- Utility Functions
+local function VerifyBall(Ball)
+    return typeof(Ball) == "Instance" 
+        and Ball:IsA("BasePart") 
+        and Ball:IsDescendantOf(Balls) 
+        and Ball:GetAttribute("realBall") == true
+end
+
+local function IsTarget()
+    return local_player.Character and local_player.Character:FindFirstChild("Highlight")
+end
+
+local function Parry()
+    Remotes:WaitForChild("ParryButtonPress"):Fire()
+end
+
+-- Auto Parry System
+local function InitializeAutoParry()
+    Balls.ChildAdded:Connect(function(Ball)
+        if not VerifyBall(Ball) or not getgenv().AutoParryEnabled then
+            return
+        end
+
+        local OldPosition = Ball.Position
+        local OldTick = tick()
+
+        Ball:GetPropertyChangedSignal("Position"):Connect(function()
+            if not IsTarget() or not getgenv().AutoParryEnabled then
+                return
+            end
+
+            local Distance = (Ball.Position - camera.Focus.Position).Magnitude
+            local Velocity = (OldPosition - Ball.Position).Magnitude
+            local PingAdjustment = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+
+            if (Distance / (Velocity + PingAdjustment)) <= 12 then
+                Parry()
+            end
+
+            if (tick() - OldTick >= 1/60) then
+                OldTick = tick()
+                OldPosition = Ball.Position
+            end
+        end)
+    end)
+end
+
+-- Hit Sound System
+local function InitializeHitSound()
+    local hitSound = Instance.new('Sound')
+    hitSound.SoundId = 'rbxassetid://8632670510'
+    hitSound.Volume = 5
+    hitSound.Parent = game:GetService('CoreGui')
+
+    ReplicatedStorage.Remotes.ParrySuccess.OnClientEvent:Connect(function()
+        if getgenv().HitSoundEnabled then
+            hitSound:Play()
+        end
+    end)
+end
+
+-- Initialize Core Systems
+InitializeAutoParry()
+InitializeHitSound()
+
+-- UI Toggles
+library:create_toggle("Auto Parry", "Combat", function(toggled)
+    getgenv().AutoParryEnabled = toggled
+end)
+
+library:create_toggle("Hit Sound", "Combat", function(toggled)
+    getgenv().HitSoundEnabled = toggled
+end)
+
+library:create_toggle("Visual Effects", "Visuals", function(toggled)
+    getgenv().VisualsEnabled = toggled
+    -- Add visual effects implementation here
+end)
+
+library:create_toggle("FPS Boost", "Performance", function(toggled)
+    getgenv().SpeedBoostEnabled = toggled
+    if toggled then
+        setfpscap(165)
+        -- Add additional FPS optimization here
+    else
+        setfpscap(60)
+    end
+end)
+
+library:create_toggle("Copy Discord", "Settings", function()
+    setclipboard("https://discord.gg/UghGVJPW")
+end)
